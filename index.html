@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0f1a">
+<title>Radar de Vasos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: un visor de cámara a ancho completo, estado grande debajo y controles al pie. */
+:root {
+  --bg: #0b0f1a;
+  --panel: #121a2b;
+  --line: #243350;
+  --text: #e8eef9;
+  --muted: #93a3bf;
+  --cup: #3b78ff;
+  --ball: #ffc21a;
+  --ok: #3ddc97;
+  --font-display: "Bricolage Grotesque", "Trebuchet MS", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body { font-family: var(--font-body); font-size: 15px; line-height: 1.45; min-height: 100%; padding-inline: 16px; padding-block: 14px 28px; }
+.wrap { max-width: 520px; margin-inline: auto; display: flex; flex-direction: column; gap: 14px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+h1 { margin: 0; font: 800 22px/1 var(--font-display); letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; text-wrap: balance; }
+h1 i { width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #ffe28a, var(--ball) 55%, #d99500); box-shadow: 0 0 0 3px rgba(255,194,26,.18); }
+.pill { font: 500 12px/1 var(--font-mono); letter-spacing: .04em; text-transform: uppercase; padding: 7px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); background: var(--panel); white-space: nowrap; }
+.pill[data-s="seen"] { color: var(--ball); border-color: rgba(255,194,26,.5); }
+.pill[data-s="track"] { color: var(--cup); border-color: rgba(59,120,255,.6); }
+.pill[data-s="answer"] { color: #08101f; background: var(--ball); border-color: var(--ball); }
+.stage { position: relative; width: 100%; margin-inline: auto; background: #05070d; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; aspect-ratio: 3 / 4; }
+.stage video, .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.stage video { object-fit: fill; background: #05070d; }
+.idle[hidden] { display: none; }
+.idle { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; color: var(--muted); gap: 6px; align-content: center; }
+.idle b { color: var(--text); font: 600 17px/1.2 var(--font-display); }
+.status { display: flex; flex-direction: column; gap: 2px; min-height: 66px; }
+#msg { font: 800 clamp(26px, 8vw, 36px)/1.05 var(--font-display); letter-spacing: -0.015em; text-wrap: balance; }
+#msg.answer { color: var(--ball); }
+#sub { color: var(--muted); }
+.row { display: flex; flex-wrap: wrap; gap: 10px; }
+button, .btn { appearance: none; font: 600 15px/1 var(--font-body); color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 13px 16px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; text-align: center; }
+button:hover, .btn:hover { border-color: #3a4d74; }
+button:focus-visible, .btn:focus-within, input:focus-visible, summary:focus-visible { outline: 2px solid var(--ball); outline-offset: 2px; }
+button.primary { background: var(--ball); color: #08101f; border-color: var(--ball); flex: 1 1 200px; }
+button.primary:hover { filter: brightness(1.06); }
+.btn input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+details { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+summary { cursor: pointer; padding: 12px 14px; font-weight: 600; color: var(--muted); list-style: none; }
+summary::-webkit-details-marker { display: none; }
+.opts { padding: 4px 14px 14px; display: grid; gap: 14px; }
+.opts label { display: grid; gap: 6px; color: var(--muted); }
+.opts label.inline { display: flex; align-items: center; gap: 10px; }
+.opts output { font-family: var(--font-mono); color: var(--text); }
+input[type=range] { width: 100%; accent-color: var(--ball); }
+input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--ball); }
+ol.how { margin: 0; padding-left: 20px; color: var(--muted); display: grid; gap: 4px; }
+ol.how b { color: var(--text); font-weight: 600; }
+.err { color: #ff8f8f; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><i></i>Radar de Vasos</h1>
+    <span class="pill" id="pill" data-s="idle">Apagado</span>
+  </header>
+
+  <div class="stage" id="stage">
+    <video id="video" playsinline muted></video>
+    <canvas id="ov">
