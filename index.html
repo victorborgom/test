@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0f1a">
+<title>Radar de Vasos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: un visor de cámara a ancho completo, estado grande debajo y controles al pie. */
+:root {
+  --bg: #0b0f1a;
+  --panel: #121a2b;
+  --line: #243350;
+  --text: #e8eef9;
+  --muted: #93a3bf;
+  --cup: #3b78ff;
+  --ball: #ffc21a;
+  --ok: #3ddc97;
+  --font-display: "Bricolage Grotesque", "Trebuchet MS", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body { font-family: var(--font-body); font-size: 15px; line-height: 1.45; min-height: 100%; padding-inline: 16px; padding-block: 14px 28px; }
+.wrap { max-width: 520px; margin-inline: auto; display: flex; flex-direction: column; gap: 14px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+h1 { margin: 0; font: 800 22px/1 var(--font-display); letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; text-wrap: balance; }
+h1 i { width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #ffe28a, var(--ball) 55%, #d99500); box-shadow: 0 0 0 3px rgba(255,194,26,.18); }
+.pill { font: 500 12px/1 var(--font-mono); letter-spacing: .04em; text-transform: uppercase; padding: 7px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); background: var(--panel); white-space: nowrap; }
+.pill[data-s="seen"] { color: var(--ball); border-color: rgba(255,194,26,.5); }
+.pill[data-s="track"] { color: var(--cup); border-color: rgba(59,120,255,.6); }
+.pill[data-s="answer"] { color: #08101f; background: var(--ball); border-color: var(--ball); }
+.stage { position: relative; width: 100%; margin-inline: auto; background: #05070d; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; aspect-ratio: 3 / 4; }
+.stage video, .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.stage video { object-fit: fill; background: #05070d; }
+.idle[hidden] { display: none; }
+.idle { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; color: var(--muted); gap: 6px; align-content: center; }
+.idle b { color: var(--text); font: 600 17px/1.2 var(--font-display); }
+.status { display: flex; flex-direction: column; gap: 2px; min-height: 66px; }
+#msg { font: 800 clamp(26px, 8vw, 36px)/1.05 var(--font-display); letter-spacing: -0.015em; text-wrap: balance; }
+#msg.answer { color: var(--ball); }
+#sub { color: var(--muted); }
+.row { display: flex; flex-wrap: wrap; gap: 10px; }
+button, .btn { appearance: none; font: 600 15px/1 var(--font-body); color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 13px 16px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; text-align: center; }
+button:hover, .btn:hover { border-color: #3a4d74; }
+button:focus-visible, .btn:focus-within, input:focus-visible, summary:focus-visible { outline: 2px solid var(--ball); outline-offset: 2px; }
+button.primary { background: var(--ball); color: #08101f; border-color: var(--ball); flex: 1 1 200px; }
+button.primary:hover { filter: brightness(1.06); }
+.btn input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+details { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+summary { cursor: pointer; padding: 12px 14px; font-weight: 600; color: var(--muted); list-style: none; }
+summary::-webkit-details-marker { display: none; }
+.opts { padding: 4px 14px 14px; display: grid; gap: 14px; }
+.opts label { display: grid; gap: 6px; color: var(--muted); }
+.opts label.inline { display: flex; align-items: center; gap: 10px; }
+.opts output { font-family: var(--font-mono); color: var(--text); }
+input[type=range] { width: 100%; accent-color: var(--ball); }
+input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--ball); }
+ol.how { margin: 0; padding-left: 20px; color: var(--muted); display: grid; gap: 4px; }
+ol.how b { color: var(--text); font-weight: 600; }
+.err { color: #ff8f8f; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><i></i>Radar de Vasos</h1>
+    <span class="pill" id="pill" data-s="idle">Apagado</span>
+  </header>
+
+  <div class="stage" id="stage">
+    <video id="video" playsinline muted></video>
+    <canvas id="ov"></canvas>
+    <div class="idle" id="idle"><b>Cámara apagada</b><span>Pulsa «Abrir cámara» y encuadra los tres vasos con la bola.</span></div>
+  </div>
+
+  <div class="status">
+    <div id="msg">Listo para empezar</div>
+    <div id="sub">Apunta a la pantalla del juego, con la mesa azul entera a la vista.</div>
+  </div>
+
+  <div class="row">
+    <button class="primary" id="btnCam">Abrir cámara</button>
+    <button id="btnReset">Reiniciar</button>
+    <label class="btn" for="file">Probar con un vídeo<input type="file" id="file" accept="video/*"></label>
+  </div>
+
+  <details>
+    <summary>Ajustes</summary>
+    <div class="opts">
+      <label for="vmin">Brillo mínimo de los vasos <output id="vminOut">0,68</output>
+        <input type="range" id="vmin" min="0.45" max="0.9" step="0.01" value="0.68">
+      </label>
+      <label class="inline" for="dbg"><input type="checkbox" id="dbg"> Ver lo que detecta la app</label>
+      <label class="inline" for="snd"><input type="checkbox" id="snd" checked> Pitido y vibración al avisar</label>
+    </div>
+  </details>
+
+  <ol class="how">
+    <li><b>Encuadra</b> la mesa azul completa: los tres vasos y la bola.</li>
+    <li><b>Espera</b> a que levante un vaso y enseñe la bola. La app la localiza.</li>
+    <li><b>No toques nada</b> mientras baraja. Al parar, marca el vaso correcto.</li>
+  </ol>
+</div>
+
+<script>
+// Núcleo de visión: detecta vasos (parte superior clara), bola amarilla y sigue la identidad de cada vaso.
+function createTracker() {
+  const S = {
+    phase: 'search',   // search -> seen -> hidden -> answer
+    tracks: null,      // [{x,y}] ordenados por x al inicializar
+    ballCup: -1,
+    topW: 0,           // ancho típico de la tapa de un vaso
+    ball: null,
+    roi: null,
+    blobs: [],
+    seenMs: 0, goneMs: 0,
+    moved: 0, stillSince: null,
+    lastT: 0, round: 0, events: [],
+    speed: 0,
+    noRoiMs: 0, dbg: null,
+  };
+
+  function label(mask, w, h, minArea, filter) {
+    const lab = new Int32Array(w * h); const out = []; const stack = [];
+    let id = 0;
+    for (let i = 0; i < w * h; i++) {
+      if (!mask[i] || lab[i]) continue;
+      id++; stack.length = 0; stack.push(i); lab[i] = id;
+      let area = 0, sx = 0, sy = 0, x0 = w, y0 = h, x1 = 0, y1 = 0;
+      while (stack.length) {
+        const p = stack.pop(); const x = p % w, y = (p / w) | 0;
+        area++; sx += x; sy += y;
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        if (x > 0 && mask[p - 1] && !lab[p - 1]) { lab[p - 1] = id; stack.push(p - 1); }
+        if (x < w - 1 && mask[p + 1] && !lab[p + 1]) { lab[p + 1] = id; stack.push(p + 1); }
+        if (y > 0 && mask[p - w] && !lab[p - w]) { lab[p - w] = id; stack.push(p - w); }
+        if (y < h - 1 && mask[p + w] && !lab[p + w]) { lab[p + w] = id; stack.push(p + w); }
+      }
+      if (area >= minArea) out.push({ id, area, cx: sx / area, cy: sy / area, x0, y0, x1, y1 });
+    }
+    return { lab, blobs: out };
+  }
+
+  function masks(d, w, h, opt) {
+    const n = w * h;
+    const blue = new Uint8Array(n), top = new Uint8Array(n), yel = new Uint8Array(n);
+    const vMin = opt.vMin;
+    for (let i = 0, j = 0; i < n; i++, j += 4) {
+      const r = d[j], g = d[j + 1], b = d[j + 2];
+      const mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+      const mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+      if (mx < 120) continue;
+      const v = mx / 255, s = (mx - mn) / mx, df = mx - mn || 1;
+      let hue;
+      if (mx === b) hue = 60 * (4 + (r - g) / df);
+      else if (mx === r) { hue = 60 * ((g - b) / df); if (hue < 0) hue += 360; }
+      else hue = 60 * (2 + (b - r) / df);
+      if (mx === b && s > 0.6 && v > vMin - 0.05 && hue > 195 && hue < 250) blue[i] = 1;
+      else if (v > vMin + 0.13 && ((s < 0.28) || (hue > 165 && hue < 205 && s < 0.62))) top[i] = 1;
+      else if (mx === r && hue > 33 && hue < 68 && s > 0.5 && v > 0.7) yel[i] = 1;
+    }
+    return { blue, top, yel };
+  }
+
+  function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+  function process(d, w, h, tMs, opt) {
+    opt = Object.assign({ vMin: 0.68 }, opt || {});
+    // fotogramas repetidos (vídeo a menos fps que el reloj): no aportan información
+    if (S._prev) {
+      let df = 0, c = 0;
+      for (let i = 0; i < d.length; i += 4 * 37) { df += Math.abs(d[i] - S._prev[c]) + Math.abs(d[i + 2] - S._prev[c + 1]); c += 2; }
+      if (df / c < 1.2) return S;
+    }
+    if (!S._prev) S._prev = new Uint8Array(Math.ceil(d.length / (4 * 37)) * 2);
+    { let c = 0; for (let i = 0; i < d.length; i += 4 * 37) { S._prev[c++] = d[i]; S._prev[c++] = d[i + 2]; } }
+    const dt = Math.max(1, tMs - S.lastT); S.lastT = tMs;
+    const { blue, top, yel } = masks(d, w, h, opt);
+    // plataforma = componente azul más grande
+    const bl = label(blue, w, h, w * h * 0.01);
+    S.roi = null; S.blobs = []; S.ball = null;
+    if (!bl.blobs.length) { S.noRoiMs += dt; if (S.noRoiMs > 2000 && S.phase !== 'search') reset(); return S; }
+    S.noRoiMs = 0;
+    bl.blobs.sort((a, b) => b.area - a.area);
+    const P = bl.blobs[0];
+    const ph = P.y1 - P.y0;
+    const roi = { x0: P.x0, y0: Math.max(0, P.y0 - Math.round(0.12 * ph)), x1: P.x1, y1: P.y1 };
+    S.roi = roi;
+    const inROI = new Uint8Array(w * h);
+    for (let y = roi.y0; y <= roi.y1; y++) for (let x = roi.x0; x <= roi.x1; x++) inROI[y * w + x] = 1;
+    // máscara de tapas dentro del ROI
+    const tm = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) tm[i] = top[i] & inROI[i];
+    const minTop = Math.max(25, w * h * 0.0004);
+    const tl = label(tm, w, h, minTop);
+    const blobs = [];
+    for (const b of tl.blobs) {
+      const bw = b.x1 - b.x0 + 1, bh = b.y1 - b.y0 + 1;
+      if (bw / bh < 1.1 || bw / bh > 5) continue;
+      if (b.area / (bw * bh) < 0.55) continue; // descarta aros finos
+      // debe haber azul justo debajo (cuerpo del vaso)
+      let cnt = 0, tot = 0;
+      for (let y = b.y1 + 1; y <= Math.min(h - 1, b.y1 + 4); y++)
+        for (let x = b.x0; x <= b.x1; x++) { tot++; if (blue[y * w + x]) cnt++; }
+      if (tot && cnt / tot < 0.4) continue;
+      blobs.push(b);
+    }
+    S.blobs = blobs;
+    S.dbg = { w, h, blue, tm, inROI };
+
+    // bola: mayor blob amarillo en el ROI
+    const ym = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) ym[i] = yel[i] & inROI[i];
+    const yl = label(ym, w, h, 8);
+    S.peek = null;
+    if (yl.blobs.length) {
+      yl.blobs.sort((a, b) => b.area - a.area);
+      const y0 = yl.blobs[0];
+      const bw = y0.x1 - y0.x0 + 1, bh = y0.y1 - y0.y0 + 1;
+      S.peek = { x: y0.cx, y: y0.cy, area: y0.area };
+      if (y0.area >= 40 && bw / bh < 2 && bh / bw < 2) S.ball = { x: y0.cx, y: y0.cy, r: Math.sqrt(y0.area / Math.PI) };
+      S.dbg_y = ym;
+    }
+    if (S.ball) S.lastBall = { x: S.ball.x, y: S.ball.y, t: tMs };
+    // ---- inicializar / seguir vasos ----
+    const typicalW = blobs.length ? blobs.reduce((s, b) => s + (b.x1 - b.x0 + 1), 0) / blobs.length : S.topW;
+    if (!S.tracks || (S.phase === 'search' && blobs.length === 3)) {
+      if (blobs.length === 3) {
+        const bs = blobs.slice().sort((a, b) => a.cx - b.cx);
+        S.tracks = bs.map(b => ({ x: b.cx, y: b.cy, vx: 0, vy: 0 }));
+        S.topW = typicalW;
+      }
+    }
+    let totalMove = 0;
+    if (S.tracks) {
+      // k-medias con compuerta: cada píxel de tapa va al track más cercano si está a menos de gate
+      const gate = S.topW * 1.35;
+      const pts = [];
+      for (let i = 0; i < w * h; i++) if (tm[i]) pts.push(i);
+      // sólo píxeles de blobs aceptados (descarta iconos sueltos)
+      const ok = new Set(blobs.map(b => b.id));
+      const px = [];
+      for (const i of pts) if (ok.has(tl.lab[i])) px.push(i);
+      const dts = Math.min(dt, 120);
+      const VEL = (opt.vel === undefined ? 1 : opt.vel);
+      const T = S.tracks.map(t => ({ x: t.x + VEL * t.vx * dts, y: t.y + VEL * t.vy * dts }));
+      const hit = [0, 0, 0];
+      let perm = null; const WA = (opt.wa === undefined ? 0 : opt.wa);
+      if (blobs.length === 3) {
+        const ar = blobs.map(b => b.area).sort((a, b) => a - b), med = ar[1];
+        if (ar[0] > med * 0.4 && ar[2] < med * 1.8) {
+          const PERMS = [[0,1,2],[0,2,1],[1,0,2],[1,2,0],[2,0,1],[2,1,0]];
+          let best = 1e18;
+          for (const p of PERMS) { // track k <- blob p[k]
+            let c = 0;
+            for (let k = 0; k < 3; k++) c += Math.hypot(blobs[p[k]].cx - T[k].x, blobs[p[k]].cy - T[k].y) + WA * Math.abs(blobs[p[k]].area - (S.tracks[k].area || med)) / med;
+            if (c < best) { best = c; perm = p; }
+          }
+
+        }
+      }
+      if (perm) {
+        for (let k = 0; k < 3; k++) { T[k].x = blobs[perm[k]].cx; T[k].y = blobs[perm[k]].cy; hit[k] = 999; S.tracks[k].area = 0.6 * (S.tracks[k].area || blobs[perm[k]].area) + 0.4 * blobs[perm[k]].area; }
+      } else {
+      for (let it = 0; it < 5; it++) {
+        const sx = [0, 0, 0], sy = [0, 0, 0], sn = [0, 0, 0];
+        for (const i of px) {
+          const x = i % w, y = (i / w) | 0;
+          let best = -1, bd = 1e9;
+          for (let k = 0; k < 3; k++) {
+            const dd = Math.hypot((x - T[k].x), (y - T[k].y) * 1.6);
+            if (dd < bd) { bd = dd; best = k; }
+          }
+          if (bd < gate) { sx[best] += x; sy[best] += y; sn[best]++; }
+        }
+        for (let k = 0; k < 3; k++) { hit[k] = sn[k]; if (sn[k] > 12) { T[k].x = sx[k] / sn[k]; T[k].y = sy[k] / sn[k]; } }
+      }
+      // re-adquirir vasos perdidos con blobs que ningún otro vaso reclama
+      const lost = [0, 1, 2].filter(k => hit[k] <= 12);
+      if (lost.length && lost.length < 3) {
+        const cl = {}, tot = {};
+        for (const i of px) {
+          const id = tl.lab[i]; tot[id] = (tot[id] || 0) + 1;
+          const x = i % w, y = (i / w) | 0;
+          for (let k = 0; k < 3; k++) if (hit[k] > 12 && Math.hypot(x - T[k].x, (y - T[k].y) * 1.6) < gate) { cl[id] = (cl[id] || 0) + 1; break; }
+        }
+        const orph = blobs.filter(b => (cl[b.id] || 0) / tot[b.id] < 0.3).sort((a, b) => b.area - a.area);
+        for (const k of lost) {
+          const o = orph.shift(); if (!o) break;
+          T[k].x = o.cx; T[k].y = o.cy; hit[k] = 999; S.tracks[k].vx = 0; S.tracks[k].vy = 0; S.tracks[k]._jump = true;
+        }
+      }
+      }
+      for (let k = 0; k < 3; k++) {
+        const t = S.tracks[k];
+        const m = Math.hypot(T[k].x - t.x, T[k].y - t.y);
+        if (t._jump) { t.vx = 0; t.vy = 0; } else if (hit[k] > 12) { t.vx = 0.5 * t.vx + 0.5 * (T[k].x - t.x) / dts; t.vy = 0.5 * t.vy + 0.5 * (T[k].y - t.y) / dts; }
+        else { t.vx *= 0.8; t.vy *= 0.8; }
+        if (!t._jump) totalMove += m; t._jump = false;
+        t.x = T[k].x; t.y = T[k].y;
+      }
+    }
+    S.speed = 0.6 * S.speed + 0.4 * (totalMove / 3 / (dt / 1000)); // px/s medio suavizado
+
+    // ---- máquina de estados ----
+    if (S.tracks) {
+      const sep = Math.max(20, S.topW * 1.6);
+      if (S.peek && (S.phase === 'hidden' || S.phase === 'answer' || S.phase === 'settle')) {
+        let bi = 0, bd = 1e9; S.tracks.forEach((t, k) => { const dd = Math.abs(t.x - S.peek.x); if (dd < bd) { bd = dd; bi = k; } });
+        S.ballCup = bi; S.peekAt = tMs;
+      }
+      if (S.ball) {
+        S.seenMs += dt; S.goneMs = 0;
+        if (S.seenMs >= ((S.phase === 'hidden' || S.phase === 'answer') ? 450 : 150)) {
+          let bi = 0, bd = 1e9;
+          S.tracks.forEach((t, k) => { const dd = Math.abs(t.x - S.ball.x); if (dd < bd) { bd = dd; bi = k; } });
+          if (S.phase === 'answer' || S.phase === 'hidden') {
+            S.events.push({ t: tMs, type: 'reveal', predicted: S.ballCup, actual: bi, round: S.round });
+          }
+          if (S.phase !== 'seen') { S.round++; S.moved = 0; S.stillSince = null; }
+          S.ballCup = bi; S.phase = 'seen';
+        }
+      } else {
+        S.goneMs += dt; S.seenMs = 0;
+        if (S.phase === 'seen' && S.goneMs >= 120) { S.phase = 'settle'; S.settleT = tMs; S.moved = 0; S.stillSince = null; }
+      }
+      if (S.phase === 'settle') {
+        // el vaso levantado vuelve a bajar: cuando vuelven a verse las 3 tapas, reiniciamos identidades
+        // y el vaso con la bola es el que cae en la x donde estaba la bola.
+        const okBlobs = blobs.length === 3;
+        if (okBlobs || tMs - S.settleT > 1500) {
+          if (okBlobs) {
+            const bs = blobs.slice().sort((a, b) => a.cx - b.cx);
+            S.tracks = bs.map(b => ({ x: b.cx, y: b.cy, vx: 0, vy: 0 }));
+          }
+          let bi = 0, bd = 1e9;
+          S.tracks.forEach((t, k) => { const dd = Math.abs(t.x - S.lastBall.x); if (dd < bd) { bd = dd; bi = k; } });
+          S.ballCup = bi; S.phase = 'hidden'; S.moved = 0; S.stillSince = null;
+        }
+      }
+      if (S.phase === 'answer') {
+        // el barajado continúa: se retira el aviso
+        if (S.speed > Math.max(60, S.topW * 2.5)) { S.fastMs = (S.fastMs || 0) + dt; if (S.fastMs > 150) { S.phase = 'hidden'; S.moved = 0; S.stillSince = null; S.fastMs = 0; } } else S.fastMs = 0;
+      }
+      if (S.phase === 'hidden') {
+        S.moved += totalMove;
+        if (S.speed < Math.max(30, S.topW * 1.2)) { if (S.stillSince == null) S.stillSince = tMs; } else S.stillSince = null;
+        if (S.moved > sep * 2 && S.stillSince != null && tMs - S.stillSince > 500) {
+          S.phase = 'answer'; S.events.push({ t: tMs, type: 'answer', cup: S.ballCup, round: S.round });
+        }
+      }
+    }
+    return S;
+  }
+  function reset() {
+    S.events.push({ t: S.lastT, type: 'reset' }); S.phase = 'search'; S.tracks = null; S.ballCup = -1; S.seenMs = S.goneMs = 0; S.moved = 0; S.stillSince = null; S.ball = null; }
+  return { S, process, reset };
+}
+
+
+</script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const video = $('video'), ov = $('ov'), stage = $('stage'), ctx = ov.getContext('2d');
+  const msg = $('msg'), sub = $('sub'), pill = $('pill'), idle = $('idle');
+  const T = createTracker(), S = T.S;
+  window.__vasos = { T, S };
+  const AW = 240; let AH = 320;
+  const ac = document.createElement('canvas'), actx = ac.getContext('2d', { willReadFrequently: true });
+  const dbgc = document.createElement('canvas'), dctx = dbgc.getContext('2d');
+  let running = false, fileMode = false, stream = null, vMin = 0.68, seenEvents = 0, audio = null, wake = null;
+  const NAMES = ['izquierdo', 'central', 'derecho'];
+
+  function fit() {
+    const vw = video.videoWidth, vh = video.videoHeight; if (!vw) return;
+    AH = Math.round(AW * vh / vw); ac.width = AW; ac.height = AH; dbgc.width = AW; dbgc.height = AH;
+    stage.style.aspectRatio = vw + ' / ' + vh;
+    const avail = stage.parentElement.clientWidth, maxH = Math.max(280, window.innerHeight * 0.62);
+    stage.style.width = Math.min(avail, maxH * vw / vh) + 'px';
+    const r = stage.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
+    ov.width = Math.round(r.width * dpr); ov.height = Math.round(r.height * dpr);
+  }
+  window.addEventListener('resize', fit);
+
+  function cupName(k) {
+    if (!S.tracks || k < 0) return '';
+    const xs = S.tracks.map(t => t.x), x = S.tracks[k].x;
+    return NAMES[xs.filter(v => v < x).length];
+  }
+
+  function beep() {
+    try {
+      if (!$('snd').checked) return;
+      if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.type = 'sine'; o.frequency.value = 880; g.gain.setValueAtTime(0.0001, audio.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.25, audio.currentTime + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + 0.35);
+      o.connect(g).connect(audio.destination); o.start(); o.stop(audio.currentTime + 0.4);
+    } catch (e) {}
+  }
+
+  function setUI() {
+    let m, s, p, ps = 'idle';
+    if (!running) { return; }
+    const ph = S.phase;
+    if (!S.roi) { m = 'Buscando la mesa azul'; s = 'Encuadra los tres vasos y la bola. Acércate un poco si hace falta.'; p = 'Buscando'; }
+    else if (ph === 'search') { m = S.blobs.length === 3 ? 'Vasos detectados' : 'Buscando los 3 vasos'; s = S.blobs.length === 3 ? 'Esperando a que se vea la bola.' : 'Ahora veo ' + S.blobs.length + ' de 3. Mejora la luz o el encuadre.'; p = 'Listo'; ps = 'seen'; }
+    else if (ph === 'seen') { m = 'Bola localizada'; s = 'Está bajo el vaso ' + cupName(S.ballCup) + '. No toques nada.'; p = 'Bola vista'; ps = 'seen'; }
+    else if (ph === 'answer') { m = 'Vaso ' + cupName(S.ballCup); s = 'Es el de la marca. Toca ese vaso.'; p = 'Respuesta'; ps = 'answer'; }
+    else { m = 'Siguiendo la bola'; s = 'Barajando. La marca se fija cuando los vasos se paran.'; p = 'Siguiendo'; ps = 'track'; }
+    msg.textContent = m; sub.textContent = s; msg.className = ph === 'answer' ? 'answer' : '';
+    pill.textContent = p; pill.dataset.s = ps;
+  }
+
+  function draw() {
+    const W = ov.width, H = ov.height; ctx.clearRect(0, 0, W, H);
+    const k = W / AW, now = performance.now();
+    if ($('dbg').checked && S.dbg) {
+      const id = dctx.createImageData(AW, AH), d = id.data, { blue, tm } = S.dbg, ym = S.dbg_y;
+      for (let i = 0; i < AW * AH; i++) {
+        const j = i * 4;
+        if (tm[i]) { d[j] = d[j+1] = d[j+2] = 255; d[j+3] = 220; }
+        else if (ym && ym[i]) { d[j] = 255; d[j+1] = 194; d[j+2] = 26; d[j+3] = 255; }
+        else if (blue[i]) { d[j] = 59; d[j+1] = 120; d[j+2] = 255; d[j+3] = 70; }
+      }
+      dctx.putImageData(id, 0, 0); ctx.imageSmoothingEnabled = false; ctx.drawImage(dbgc, 0, 0, W, H);
+    }
+    if (!S.roi) return;
+    // tapas de los vasos
+    ctx.lineWidth = Math.max(1.5, k * 0.7);
+    for (const b of S.blobs) {
+      ctx.strokeStyle = 'rgba(255,255,255,.45)';
+      ctx.beginPath(); ctx.ellipse(b.cx * k, b.cy * k, (b.x1 - b.x0 + 3) / 2 * k, (b.y1 - b.y0 + 3) / 2 * k, 0, 0, 6.2832); ctx.stroke();
+    }
+    const ph = S.phase;
+    if (S.ball && (ph === 'seen' || ph === 'answer')) {
+      ctx.strokeStyle = '#ffc21a'; ctx.lineWidth = 3 * (k / 2);
+      ctx.beginPath(); ctx.arc(S.ball.x * k, S.ball.y * k, (S.ball.r + 6) * k, 0, 6.2832); ctx.stroke();
+    }
+    if ((ph === 'settle' || ph === 'hidden' || (ph === 'answer' && !S.ball)) && S.tracks && S.ballCup >= 0) {
+      const t = S.tracks[S.ballCup], x = t.x * k, y = t.y * k, r = Math.max(14, S.topW * 0.62) * k;
+      if (ph === 'answer') {
+        const pul = 0.5 + 0.5 * Math.sin(now / 160);
+        ctx.fillStyle = 'rgba(255,194,26,' + (0.18 + 0.12 * pul) + ')';
+        ctx.beginPath(); ctx.ellipse(x, y, r * 1.25, r * 0.8, 0, 0, 6.2832); ctx.fill();
+        ctx.strokeStyle = '#ffc21a'; ctx.lineWidth = 4 * (k / 2);
+        ctx.beginPath(); ctx.ellipse(x, y, r * (1.25 + 0.1 * pul), r * (0.8 + 0.07 * pul), 0, 0, 6.2832); ctx.stroke();
+        // flecha hacia abajo
+        const bob = 6 * k * pul, tipY = y - r * 1.15 - bob, ah = r * 1.3, aw = r * 0.9;
+        ctx.fillStyle = '#ffc21a'; ctx.beginPath();
+        ctx.moveTo(x, tipY); ctx.lineTo(x - aw / 2, tipY - ah * 0.55); ctx.lineTo(x - aw / 6, tipY - ah * 0.55);
+        ctx.lineTo(x - aw / 6, tipY - ah); ctx.lineTo(x + aw / 6, tipY - ah); ctx.lineTo(x + aw / 6, tipY - ah * 0.55);
+        ctx.lineTo(x + aw / 2, tipY - ah * 0.55); ctx.closePath(); ctx.fill();
+      } else {
+        ctx.setLineDash([6 * (k / 2), 5 * (k / 2)]); ctx.lineDashOffset = -now / 40;
+        ctx.strokeStyle = 'rgba(255,194,26,.75)'; ctx.lineWidth = 2.5 * (k / 2);
+        ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.65, 0, 0, 6.2832); ctx.stroke(); ctx.setLineDash([]);
+      }
+    }
+  }
+
+  function step(now, meta) {
+    if (!running) return;
+    if (video.readyState >= 2 && AH) {
+      actx.drawImage(video, 0, 0, AW, AH);
+      const img = actx.getImageData(0, 0, AW, AH);
+      const t = fileMode ? video.currentTime * 1000 : now;
+      T.process(img.data, AW, AH, t, { vMin });
+      if (S.events.length !== seenEvents) {
+        for (let i = seenEvents; i < S.events.length; i++) if (S.events[i].type === 'answer') beep();
+        seenEvents = S.events.length;
+      }
+      draw(); setUI();
+    }
+    schedule();
+  }
+  function schedule() {
+    if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(step); else requestAnimationFrame(step);
+  }
+
+  async function begin(label) {
+    running = true; idle.hidden = true; T.reset(); S.events.length = 0; seenEvents = 0;
+    await video.play().catch(() => {});
+    fit(); schedule();
+    try { if (navigator.wakeLock) wake = await navigator.wakeLock.request('screen'); } catch (e) {}
+    setUI();
+  }
+  function stopAll() {
+    running = false;
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    try { wake && wake.release(); } catch (e) {}
+    video.pause(); video.removeAttribute('src'); video.srcObject = null;
+  }
+
+  $('btnCam').addEventListener('click', async () => {
+    stopAll(); fileMode = false;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } } });
+      video.srcObject = stream; video.loop = false;
+      await new Promise(r => video.onloadedmetadata = r);
+      await begin();
+      $('btnCam').textContent = 'Reabrir cámara';
+    } catch (e) {
+      idle.hidden = false;
+      idle.innerHTML = '<b>No se pudo abrir la cámara</b><span class="err"></span><span>Hace falta permiso de cámara y abrir la página desde https o desde localhost. Mientras, puedes probar con un vídeo.</span>';
+      idle.querySelector('.err').textContent = (e && e.name ? e.name : 'Error') + (e && e.message ? ': ' + e.message : '');
+    }
+  });
+  $('file').addEventListener('change', async ev => {
+    const f = ev.target.files && ev.target.files[0]; if (!f) return;
+    stopAll(); fileMode = true;
+    video.src = URL.createObjectURL(f); video.loop = false; video.muted = true;
+    await new Promise(r => video.onloadedmetadata = r);
+    await begin();
+    video.onended = () => { msg.textContent = 'Vídeo terminado'; sub.textContent = 'Pulsa «Reiniciar» para repetirlo.'; };
+  });
+  $('btnReset').addEventListener('click', () => {
+    T.reset(); S.events.length = 0; seenEvents = 0;
+    if (fileMode && video.src) { video.currentTime = 0; video.play().catch(() => {}); }
+    if (running) setUI(); else { msg.textContent = 'Listo para empezar'; }
+  });
+  $('vmin').addEventListener('input', e => { vMin = +e.target.value; $('vminOut').textContent = vMin.toFixed(2).replace('.', ','); });
+  document.addEventListener('visibilitychange', async () => { if (!document.hidden && running && !fileMode) { try { if (navigator.wakeLock) wake = await navigator.wakeLock.request('screen'); } catch (e) {} } });
+})();
+</script>
+</body>
+</html>
